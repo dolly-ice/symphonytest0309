@@ -31,4 +31,4 @@ jobs:
         run: pnpm build
 
       - name: Deploy
-        run: echo pnpm deploy
+        run: pnpm deploy
