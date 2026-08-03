@@ -1,41 +1,46 @@
-name: Respond when issue assigned to copilot
+name: Respond when assigned to copilot OR when @copilot mentioned in comments
 
 on:
   issues:
     types: [assigned]
+  issue_comment:
+    types: [created]
 
 permissions:
   issues: write
   contents: read
 
 jobs:
-  respond-to-assignment:
+  handle-assignment-or-comment:
     runs-on: ubuntu-latest
-    # 只有当 assignee 的登录名严格等于 'copilot' 时才运行；如需改为其他名字请替换下面的字符串
-    if: github.event.assignee && github.event.assignee.login == 'copilot'
     steps:
-      - name: Acknowledge assignment
+      - name: Determine trigger and decide
         uses: actions/github-script@v6
         with:
           script: |
-            const actor = context.actor;
-            const issue_number = context.issue.number;
-            const body = `@${actor} 已将此 issue 指派给 copilot。我是自动回复：已接收指派。请在评论中说明要执行的具体操作，或使用 "/copilot run"。`;
-            await github.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number,
-              body
-            });
-
-      - name: (Optional) Call external AI service
-        if: env.COPILOT_AI_ENABLED == 'true'
-        env:
-          COPILOT_AI_KEY: ${{ secrets.COPILOT_AI_KEY }}
-        run: |
-          echo "Calling external AI service (placeholder)"
-          # 在此放置调用外部 AI 的脚本（示例）
-          # curl -s -X POST https://api.example.com/run \
-          #   -H "Authorization: Bearer $COPILOT_AI_KEY" \
-          #   -H "Content-Type: application/json" \
-          #   -d "{\"repo\":\"${{ github.repository }}\",\"issue_number\":${{ github.event.issue.number }}}"
+            const eventName = context.eventName;
+            // 如果是 assignment，检查 assignee 是否为 copilot
+            if (eventName === 'issues') {
+              const assignee = github.event.assignee && github.event.assignee.login;
+              if (assignee === 'copilot') {
+                await github.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  body: `@${context.actor} 已将此 issue 指派给 copilot。我（自动回复）已接收指派，请在评论中说明具体要我执行的内容。`
+                });
+              }
+              return;
+            }
+            // 如果是 comment，检查是否包含 @copilot 或 /copilot
+            if (eventName === 'issue_comment') {
+              const body = (github.event.comment && github.event.comment.body) || '';
+              if (body.includes('@copilot') || body.match(/^\/copilot\b/)) {
+                await github.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  body: `收到对 @copilot 的请求（由 @${context.payload.comment.user.login} 触发）。如果要我执行具体任务，请以 "/copilot run <说明>" 的形式输入。`
+                });
+              }
+            }
